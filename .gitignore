@@ -3,3 +3,7 @@ xhs_state.json
 downloads/
 __pycache__/
 *.part
+build/
+dist/
+*.spec
+__pycache__/

@@ -236,15 +236,9 @@ def download(client: httpx.Client, urls: list[str], folder: Path) -> None:
         print(f"    已下载 {path.name}")
 
 
-def main() -> None:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+def run(target: str) -> None:
+    """核心下载流程: target 为主页链接/帖子链接/博主ID. 供命令行与 GUI 共用."""
     DOWNLOAD_DIR.mkdir(exist_ok=True)
-    if len(sys.argv) > 1:
-        target = " ".join(sys.argv[1:])
-    else:
-        target = input("请粘贴博主主页链接、帖子链接或博主 ID: ")
-
     with sync_playwright() as p:
         context = open_context(p)
         page = context.new_page()
@@ -294,6 +288,16 @@ def main() -> None:
 
         context.close()
     print("完成. 文件保存在 downloads/ 目录.")
+
+
+def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if len(sys.argv) > 1:
+        target = " ".join(sys.argv[1:])
+    else:
+        target = input("请粘贴博主主页链接、帖子链接或博主 ID: ")
+    run(target)
 
 
 if __name__ == "__main__":
