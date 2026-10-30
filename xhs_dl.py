@@ -6,6 +6,7 @@
 """
 
 import json
+import os
 import random
 import re
 import sys
@@ -22,6 +23,21 @@ DOWNLOAD_DIR = BASE_DIR / "downloads"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 HOME = "https://www.xiaohongshu.com"
+
+
+def _ensure_browser() -> None:
+    """exe 分发时优先使用同目录 ms-browsers/ 下的浏览器.
+
+    PyInstaller --onefile 模式下 __file__ 指向解包临时目录,
+    所以改用 sys.executable 所在目录判断 exe 位置.
+    """
+    if getattr(sys, "frozen", False):
+        app_dir = Path(sys.executable).parent
+    else:
+        app_dir = BASE_DIR
+    bundled = app_dir / "ms-browsers"
+    if (bundled / "chromium").is_dir():
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundled)
 
 
 def rand_sleep(a: float = 1.0, b: float = 3.0) -> None:
@@ -238,6 +254,7 @@ def download(client: httpx.Client, urls: list[str], folder: Path) -> None:
 
 def run(target: str) -> None:
     """核心下载流程: target 为主页链接/帖子链接/博主ID. 供命令行与 GUI 共用."""
+    _ensure_browser()
     DOWNLOAD_DIR.mkdir(exist_ok=True)
     with sync_playwright() as p:
         context = open_context(p)
