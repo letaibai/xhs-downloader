@@ -1,0 +1,5 @@
+# 登录态与本地数据, 不上传
+xhs_state.json
+downloads/
+__pycache__/
+*.part
