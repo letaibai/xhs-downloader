@@ -298,10 +298,26 @@ def _log(*args) -> None:
         pass
 
 
-def run(target: str) -> None:
-    """核心下载流程: target 为主页链接/帖子链接/博主ID. 供命令行与 GUI 共用."""
+def extract_all_targets(text: str) -> list[str]:
+    """从粘贴文本中拆出全部链接/ID, 空格或换行分隔, 忽略无法识别的内容."""
+    targets: list[str] = []
+    for token in re.split(r"\s+", text.strip()):
+        if not token:
+            continue
+        if (token.startswith("http") or "xiaohongshu.com" in token
+                or "xhslink" in token or re.fullmatch(r"[0-9a-f]{16,}", token)):
+            targets.append(token)
+    return targets
+
+
+def run_all(targets: list[str]) -> None:
+    """批量下载流程: 登录一次, 依次处理全部链接. 供命令行与 GUI 共用."""
+    if not targets:
+        _log("未识别到任何链接.")
+        sys.exit(1)
     _ensure_browser()
     _log(f"=== 开始运行, BASE_DIR={BASE_DIR}, 登录态文件存在={STATE_FILE.exists()}")
+    _log(f"共 {len(targets)} 个目标")
     DOWNLOAD_DIR.mkdir(exist_ok=True)
     with sync_playwright() as p:
         context = open_context(p)
@@ -314,54 +330,67 @@ def run(target: str) -> None:
         headers = {"Referer": HOME, "User-Agent": UA}
         with httpx.Client(headers=headers, follow_redirects=True,
                           timeout=60) as client:
-            note_id = extract_note_id(target)
-            if note_id:
-                _log(f"检测到单篇帖子链接: {note_id}")
-                media = crawl_note_media(page, note_id)
-                if not media["images"] and not media["video"]:
-                    _log("未获取到媒体内容.")
-                    sys.exit(1)
-                folder = DOWNLOAD_DIR / f"note_{note_id}"
-                folder.mkdir(parents=True, exist_ok=True)
-                if media["images"]:
-                    download(client, media["images"], folder)
-                if media["video"]:
-                    download(client, [media["video"]], folder)
-            else:
-                user_id = extract_user_id(target)
-                _log("正在获取博主全部笔记列表...")
-                notes, nickname = crawl_user_notes(page, user_id)
-                nickname = sanitize(str(nickname).strip().split("\n")[0], user_id)
-                _log(f"博主 [{nickname}] 共 {len(notes)} 篇笔记")
-
-                for idx, note in enumerate(notes, 1):
-                    nid = note["note_id"]
-                    title = sanitize(note.get("display_title") or "", nid)
-                    folder = DOWNLOAD_DIR / nickname / title
-                    _log(f"[{idx}/{len(notes)}] {title}")
-                    media = crawl_note_media(page, nid)
-                    if not media["images"] and not media["video"]:
-                        _log("    未获取到媒体内容, 跳过")
-                        continue
-                    folder.mkdir(parents=True, exist_ok=True)
-                    if media["images"]:
-                        download(client, media["images"], folder)
-                    if media["video"]:
-                        download(client, [media["video"]], folder)
+            for n, target in enumerate(targets, 1):
+                _log(f"——— 目标 {n}/{len(targets)} ———")
+                try:
+                    _run_one(target, page, client)
+                except SystemExit:
+                    raise
+                except Exception as e:
+                    _log(f"该目标处理失败: {e!r}, 继续下一个.")
+                if n < len(targets):
                     rand_sleep()
 
         context.close()
-    _log("完成. 文件保存在 downloads/ 目录.")
+    _log("全部完成. 文件保存在 downloads/ 目录.")
+
+
+def _run_one(target: str, page: Page, client: httpx.Client) -> None:
+    note_id = extract_note_id(target)
+    if note_id:
+        _log(f"检测到单篇帖子链接: {note_id}")
+        media = crawl_note_media(page, note_id)
+        if not media["images"] and not media["video"]:
+            _log("未获取到媒体内容.")
+            return
+        folder = DOWNLOAD_DIR / f"note_{note_id}"
+        folder.mkdir(parents=True, exist_ok=True)
+        if media["images"]:
+            download(client, media["images"], folder)
+        if media["video"]:
+            download(client, [media["video"]], folder)
+        return
+    user_id = extract_user_id(target)
+    _log("正在获取博主全部笔记列表...")
+    notes, nickname = crawl_user_notes(page, user_id)
+    nickname = sanitize(str(nickname).strip().split("\n")[0], user_id)
+    _log(f"博主 [{nickname}] 共 {len(notes)} 篇笔记")
+
+    for idx, note in enumerate(notes, 1):
+        nid = note["note_id"]
+        title = sanitize(note.get("display_title") or "", nid)
+        folder = DOWNLOAD_DIR / nickname / title
+        _log(f"[{idx}/{len(notes)}] {title}")
+        media = crawl_note_media(page, nid)
+        if not media["images"] and not media["video"]:
+            _log("    未获取到媒体内容, 跳过")
+            continue
+        folder.mkdir(parents=True, exist_ok=True)
+        if media["images"]:
+            download(client, media["images"], folder)
+        if media["video"]:
+            download(client, [media["video"]], folder)
+        rand_sleep()
 
 
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if len(sys.argv) > 1:
-        target = " ".join(sys.argv[1:])
+        text = " ".join(sys.argv[1:])
     else:
-        target = input("请粘贴博主主页链接、帖子链接或博主 ID: ")
-    run(target)
+        text = input("请粘贴链接(多个用空格分隔): ")
+    run_all(extract_all_targets(text))
 
 
 if __name__ == "__main__":

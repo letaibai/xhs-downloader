@@ -37,15 +37,12 @@ class App(tk.Tk):
         frm = ttk.Frame(self, padding=12)
         frm.pack(fill="both", expand=True)
 
-        ttk.Label(frm, text="博主主页链接 / 单篇帖子链接 / 博主ID:").pack(anchor="w")
-        row = ttk.Frame(frm)
-        row.pack(fill="x", pady=(4, 8))
-        self.url_var = tk.StringVar()
-        self.entry = ttk.Entry(row, textvariable=self.url_var)
-        self.entry.pack(side="left", fill="x", expand=True, ipady=3)
-        self.entry.bind("<Return>", lambda e: self.start())
-        self.btn = ttk.Button(row, text="开始下载", command=self.start)
-        self.btn.pack(side="left", padx=(8, 0))
+        ttk.Label(frm, text="链接 (可一次粘贴多个, 用空格或换行分隔;\n"
+                            "支持博主主页 / 单篇帖子 / 短链):").pack(anchor="w")
+        self.url_text = tk.Text(frm, height=4, font=("Microsoft YaHei UI", 10))
+        self.url_text.pack(fill="x", pady=(4, 8))
+        self.btn = ttk.Button(frm, text="开始下载", command=self.start)
+        self.btn.pack(anchor="e")
 
         ttk.Label(frm, text="日志:").pack(anchor="w")
         self.log = scrolledtext.ScrolledText(frm, height=15, state="disabled",
@@ -68,19 +65,20 @@ class App(tk.Tk):
     def start(self) -> None:
         if self.running:
             return
-        target = self.url_var.get().strip()
-        if not target:
+        raw = self.url_text.get("1.0", "end").strip()
+        targets = xhs_dl.extract_all_targets(raw)
+        if not targets:
             self.log_write("请先粘贴链接.")
             return
         self.running = True
         self.btn.configure(state="disabled", text="下载中...")
-        self.set_status("正在下载, 请耐心等待...")
-        self.log_write(f"目标: {target}")
+        self.set_status(f"正在下载 {len(targets)} 个目标, 请耐心等待...")
+        self.log_write(f"识别到 {len(targets)} 个链接")
         # print 重定向到 GUI
         logq = LogQueue()
         self._orig_stdout = sys.stdout
         sys.stdout = logq
-        t = threading.Thread(target=self._worker, args=(target, logq), daemon=True)
+        t = threading.Thread(target=self._worker, args=(targets, logq), daemon=True)
         t.start()
         self._poll(logq)
 
@@ -96,9 +94,9 @@ class App(tk.Tk):
         if self.running:
             self.after(200, lambda: self._poll(logq))
 
-    def _worker(self, target: str, logq) -> None:
+    def _worker(self, targets: list, logq) -> None:
         try:
-            xhs_dl.run(target)
+            xhs_dl.run_all(targets)
         except SystemExit:
             pass
         except Exception:
