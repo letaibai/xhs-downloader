@@ -17,7 +17,12 @@ from urllib.parse import urlparse, parse_qs
 import httpx
 from playwright.sync_api import sync_playwright, Response, BrowserContext, Page
 
-BASE_DIR = Path(__file__).parent
+# 打包成 exe 后 __file__ 指向临时解压目录, 数据必须放在 exe 旁边, 否则
+# 登录态和下载文件会随临时目录一起被删.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
 STATE_FILE = BASE_DIR / "xhs_state.json"
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -26,16 +31,8 @@ HOME = "https://www.xiaohongshu.com"
 
 
 def _ensure_browser() -> None:
-    """优先使用随包分发的浏览器, 其次系统已装的 Edge/Chrome, 避免打包 Chromium.
-
-    PyInstaller --onefile 模式下 __file__ 指向解包临时目录,
-    所以改用 sys.executable 所在目录判断 exe 位置.
-    """
-    if getattr(sys, "frozen", False):
-        app_dir = Path(sys.executable).parent
-    else:
-        app_dir = BASE_DIR
-    bundled = app_dir / "ms-browsers"
+    """优先使用随包分发的浏览器, 其次系统已装的 Edge/Chrome, 避免打包 Chromium."""
+    bundled = BASE_DIR / "ms-browsers"
     if (bundled / "chromium").is_dir():
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundled)
         return
