@@ -146,19 +146,34 @@ def is_logged_in(context: BrowserContext, page: Page) -> bool:
 
 
 def login(context: BrowserContext, page: Page) -> None:
-    """在已打开的页面上等待扫码登录, 成功后保存登录态."""
+    """在已打开的页面上等待扫码登录, 成功后保存登录态.
+
+    被动监听页面的 user/me 接口: 只有它返回非 guest 才算登录完成.
+    期间不刷新/不跳转, 避免打断扫码后的短信/滑块验证流程.
+    (cookie 里的 web_session 在扫码后就会产生, 不能作为登录完成依据)
+    """
     print("请在浏览器中用手机小红书 App 扫码登录...")
+    if "user/me" not in page.url and page.url.rstrip("/") != HOME:
+        page.goto(HOME)
+    result = {"ok": False}
+
+    def on_resp(resp: Response):
+        if "/api/sns/web/v2/user/me" in resp.url:
+            try:
+                result["ok"] = not resp.json().get("data", {}).get("guest", True)
+            except Exception:
+                pass
+
+    page.on("response", on_resp)
     deadline = time.time() + 300
-    while time.time() < deadline:
-        # 只轮询 cookie, 不重复刷新页面
-        cookies = {c["name"]: c["value"] for c in context.cookies(HOME)}
-        if cookies.get("web_session") and not cookies["web_session"].startswith("0:"):
-            context.storage_state(path=str(STATE_FILE))
-            print("登录成功, 登录态已保存到 xhs_state.json")
-            return
-        time.sleep(2)
-    print("5 分钟内未完成登录, 退出.")
-    sys.exit(1)
+    while time.time() < deadline and not result["ok"]:
+        time.sleep(1)
+    page.remove_listener("response", on_resp)
+    if not result["ok"]:
+        print("5 分钟内未完成登录, 退出.")
+        sys.exit(1)
+    context.storage_state(path=str(STATE_FILE))
+    print("登录成功, 登录态已保存到 xhs_state.json")
 
 
 def crawl_user_notes(page: Page, user_id: str) -> list[dict]:
