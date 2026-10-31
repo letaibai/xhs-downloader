@@ -26,7 +26,7 @@ HOME = "https://www.xiaohongshu.com"
 
 
 def _ensure_browser() -> None:
-    """exe 分发时优先使用同目录 ms-browsers/ 下的浏览器.
+    """优先使用随包分发的浏览器, 其次系统已装的 Edge/Chrome, 避免打包 Chromium.
 
     PyInstaller --onefile 模式下 __file__ 指向解包临时目录,
     所以改用 sys.executable 所在目录判断 exe 位置.
@@ -38,6 +38,24 @@ def _ensure_browser() -> None:
     bundled = app_dir / "ms-browsers"
     if (bundled / "chromium").is_dir():
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundled)
+        return
+    # 无随包浏览器时, 尝试系统 Edge / Chrome (Win10/11 预装 Edge)
+    for channel in ("msedge", "chrome"):
+        try:
+            exe = _channel_executable(channel)
+            if exe and Path(exe).is_file():
+                os.environ["XHS_CHANNEL"] = channel
+                return
+        except Exception:
+            pass
+
+
+def _channel_executable(channel: str) -> str:
+    import winreg
+    key_path = (r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+                r"\App Paths\%s.exe" % ("msedge" if channel == "msedge" else "chrome"))
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+        return winreg.QueryValueEx(key, "")[0]
 
 
 def rand_sleep(a: float = 1.0, b: float = 3.0) -> None:
@@ -97,7 +115,11 @@ def extract_user_id(text: str) -> str:
 
 
 def open_context(p, headless: bool = False) -> BrowserContext:
-    browser = p.chromium.launch(headless=headless)
+    channel = os.environ.get("XHS_CHANNEL")
+    if channel:
+        browser = p.chromium.launch(headless=headless, channel=channel)
+    else:
+        browser = p.chromium.launch(headless=headless)
     if STATE_FILE.exists():
         context = browser.new_context(storage_state=str(STATE_FILE), user_agent=UA)
     else:
